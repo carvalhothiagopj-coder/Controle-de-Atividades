@@ -880,7 +880,7 @@ h1,h2,.brand-name,.datebar-label strong,.fday-title strong,.log-period strong{fo
       <div class="sync-status side-sync" data-sync-status data-state="off"></div>
       <div class="side-date" id="side-date"></div>
       <button class="theme-btn" data-act="theme-cycle" id="theme-btn"></button>
-      <div class="side-ver">Versão 2026.10.19</div>
+      <div class="side-ver">Versão 2026.10.20</div>
     </div>
   </aside>
 
@@ -1796,6 +1796,7 @@ function viewPlan(){
         <button class="btn btn-sm" data-act="plan-week-set" data-key="${curKey}" ${key === curKey ? 'disabled' : ''}>Esta</button>
         <button class="icon-btn sm" data-act="plan-week" data-delta="1" aria-label="Semana seguinte">${icon('right')}</button>
       </div>
+      ${plan.items.length || plan.goals.some(g => g.trim()) || plan.review.trim() || state.fit.weekPlans[key] ? `<button class="btn btn-sm" data-act="plan-move">${icon('arrow-right', 'ic-sm')}Mover para outra semana</button>` : ''}
     </div>
   </header>
   <nav class="stepper" aria-label="Etapas do planejamento">${steps.map((s, i) => `<button class="step ${i + 1 < step ? 'done' : ''}" data-act="plan-step" data-step="${i + 1}" ${i + 1 === step ? 'aria-current="step"' : ''}><span class="n num">${i + 1 < step ? icon('check') : i + 1}</span>${s}</button>`).join('')}</nav>
@@ -1862,7 +1863,7 @@ function viewSettings(){
         <button class="btn" data-act="clear-examples" ${hasExamples ? '' : 'disabled'}>Limpar exemplos</button></div>
       <div class="set-row"><div class="txt"><strong>Apagar todos os dados</strong><span class="hint">Remove tudo deste navegador. Não dá para desfazer.</span></div>
         <button class="btn btn-danger" data-act="wipe">${icon('trash')}Apagar tudo</button></div>
-      <div class="set-row"><div class="txt"><strong>Versão do app</strong><span class="hint">2026.10.19 · Controle de Atividades</span></div></div>
+      <div class="set-row"><div class="txt"><strong>Versão do app</strong><span class="hint">2026.10.20 · Controle de Atividades</span></div></div>
       <div class="set-row"><div class="txt"><strong>Armazenamento</strong><span class="hint">${storageOK ? 'Salvando automaticamente neste navegador.' : 'Indisponível neste navegador. Exporte um backup.'}</span></div></div>
     </section>
   </div>`;
@@ -1959,15 +1960,23 @@ function confirmBox({ title, text, ok = 'Confirmar', danger = true, requireText 
 function catOptions(sel){ return state.categories.map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('') + '<option value="__new">+ Nova categoria…</option>'; }
 function segButtons(group, opts, val){ return `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-act="seg" data-group="${group}" data-val="${v}" aria-pressed="${v === val}">${l}</button>`).join('')}</div>`; }
 
+/* Itens do planejamento criados juntos formam uma série (mesma atividade em vários dias). */
+function seriesOf(plan, it){
+  const sib = it.series ? plan.items.filter(x => x.series === it.series) : plan.items.filter(x => !x.series && norm(x.title) === norm(it.title));
+  return sib.length ? sib : [it];
+}
 function openTaskModal(t, def = {}, opts = {}){
   const isP = opts.mode === 'pitem';
   const src = t || { title: def.title || '', date: def.date === undefined ? todayKey() : def.date, start: def.start || '', end: def.end || '', category: def.category || 'trabalho', priority: def.priority || 'media', status: 'todo', notes: '' };
   if (!t && isTime(src.start) && !src.end) src.end = fromMin(Math.min(toMin(src.start) + 60, 1439));
-  modalCtx = { kind: isP ? 'pitem' : 'task', id: t?.id || null, pri: src.priority, status: src.status || 'todo', planKey: opts.planKey, pdays: isP ? [src.date] : null };
+  const sib = isP && t ? seriesOf(getPlan(opts.planKey), t) : [];
+  modalCtx = { kind: isP ? 'pitem' : 'task', id: t?.id || null, pri: src.priority, status: src.status || 'todo', planKey: opts.planKey,
+    pdays: isP ? (sib.length > 1 ? [...new Set(sib.map(x => x.date))] : [src.date]) : null, seriesIds: sib.map(x => x.id), scopeAll: sib.length > 1, ownDate: src.date };
   const dateField = isP
     ? `<div class="actions" style="margin-bottom:8px"><button class="chip" data-act="pdays" data-p="wk">Seg a Sex</button><button class="chip" data-act="pdays" data-p="all">Todos os dias</button><button class="chip" data-act="pdays" data-p="we">Fim de semana</button></div>
-       <div class="daypick" id="p-days">${weekDays(opts.planKey).map(k => `<button class="chip" data-act="pday" data-k="${k}" aria-pressed="${k === src.date}"><span>${DOW_S[dowOf(k)]}</span><span class="num muted">${fmtDM(k)}</span></button>`).join('')}</div>
-       <span class="hint">Marque todos os dias em que a atividade se repete. Cada dia vira um item.</span>`
+       <div class="daypick" id="p-days">${weekDays(opts.planKey).map(k => `<button class="chip" data-act="pday" data-k="${k}" aria-pressed="${modalCtx.pdays.includes(k)}"><span>${DOW_S[dowOf(k)]}</span><span class="num muted">${fmtDM(k)}</span></button>`).join('')}</div>
+       <span class="hint">Marque todos os dias em que a atividade se repete. Cada dia vira um item.</span>
+       ${sib.length > 1 ? `<label class="check-line" style="margin-top:8px"><input type="checkbox" id="p-scope" checked data-change="p-scope"> Alterar em todos os dias desta atividade (${[...new Set(sib.map(x => DOW_S[dowOf(x.date)]))].join(', ')})</label>` : ''}`
     : `<div class="date-row"><input id="f-date" class="input num" data-mask="date" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" value="${src.date ? fmtBR(src.date) : ''}" data-input="task-form">
         <button class="chip" data-act="date-chip" data-v="0">Hoje</button><button class="chip" data-act="date-chip" data-v="1">Amanhã</button><button class="chip" data-act="date-chip" data-v="none">Sem data</button></div>
        <span class="hint">Sem data, a tarefa fica na caixa de entrada.</span>`;
@@ -1984,7 +1993,7 @@ function openTaskModal(t, def = {}, opts = {}){
   </div>
   <div id="f-conflict" class="notice warn" hidden></div>
   <div id="f-errors" class="notice error" hidden role="alert"></div>`;
-  const footer = `${t ? `<button class="btn btn-danger" data-act="${isP ? 'pitem-del' : 'task-del'}" data-id="${t.id}">${icon('trash')}Excluir</button>${isP ? '' : `<button class="btn btn-ghost" data-act="task-dup" data-id="${t.id}">${icon('copy')}Duplicar</button>`}` : ''}
+  const footer = `${t ? `<button class="btn btn-danger" data-act="${isP ? 'pitem-del' : 'task-del'}" data-id="${t.id}">${icon('trash')}${isP && sib.length > 1 ? 'Excluir de todos os dias' : 'Excluir'}</button>${isP ? '' : `<button class="btn btn-ghost" data-act="task-dup" data-id="${t.id}">${icon('copy')}Duplicar</button>`}` : ''}
     <span class="spacer"></span><button class="btn" data-act="modal-close">Cancelar</button><button class="btn btn-primary" data-act="modal-save">Salvar</button>`;
   openModal({ title: isP ? (t ? 'Editar atividade planejada' : 'Nova atividade planejada') : (t ? 'Editar tarefa' : 'Nova tarefa'), body, footer });
   updateConflict();
@@ -2020,7 +2029,8 @@ function formConflicts(){
   if (!data.date || !data.start) return [];
   const probe = { id: modalCtx.id, date: data.date, start: data.start, end: data.end };
   if (modalCtx.kind === 'task') return conflictsOf(probe);
-  const items = peekPlan(modalCtx.planKey).items.map(i => ({ ...i, status: 'todo' }));
+  const own = new Set(modalCtx.scopeAll ? modalCtx.seriesIds : [modalCtx.id]);
+  const items = peekPlan(modalCtx.planKey).items.filter(i => !own.has(i.id)).map(i => ({ ...i, status: 'todo' }));
   return modalCtx.pdays.flatMap(d => conflictsOf({ ...probe, date: d }, items).map(o => ({ ...o, title: `${o.title} · ${DOW_S[dowOf(d)]}` })));
 }
 function updateConflict(){
@@ -2054,17 +2064,36 @@ function saveTask(){
 function savePitem(){
   const { errors, bad, data } = readTaskForm(); showErrors(errors, bad); if (errors.length) return;
   const plan = getPlan(modalCtx.planKey);
-  const f = { title: data.title, date: data.date, start: data.start, end: data.end, category: data.category, priority: data.priority, notes: data.notes };
+  const f = { title: data.title, start: data.start, end: data.end, category: data.category, priority: data.priority, notes: data.notes };
   const days = [...modalCtx.pdays].sort();
-  let rest = days;
-  if (modalCtx.id) {
+  const syncTask = it => { const t = it.taskId && findTask(it.taskId); if (t) Object.assign(t, { title: it.title, date: it.date, start: it.start, end: it.end, category: it.category, priority: it.priority }); };
+  let removed = 0;
+  if (modalCtx.id && modalCtx.scopeAll) {
+    // editar a série inteira: atualiza os dias mantidos, cria os novos e remove os desmarcados
+    const sib = plan.items.filter(x => modalCtx.seriesIds.includes(x.id));
+    const sid = sib.find(x => x.series)?.series || uid();
+    for (const d of days) {
+      let it = sib.find(x => x.date === d);
+      if (it) Object.assign(it, f, { series: sid });
+      else { it = { id: uid(), taskId: null, series: sid, ...f, date: d }; plan.items.push(it); }
+      syncTask(it);
+    }
+    for (const x of sib.filter(x => !days.includes(x.date))) {
+      plan.items = plan.items.filter(y => y !== x); removed++;
+      const t = x.taskId && findTask(x.taskId); if (t && t.status !== 'done') state.tasks = state.tasks.filter(y => y !== t);
+    }
+  } else if (modalCtx.id) {
     const it = plan.items.find(i => i.id === modalCtx.id);
     const keep = days.includes(it.date) ? it.date : days[0];
-    Object.assign(it, f, { date: keep }); rest = days.filter(d => d !== keep);
+    Object.assign(it, f, { date: keep }); syncTask(it);
+    days.filter(d => d !== keep).forEach(d => plan.items.push({ id: uid(), taskId: null, series: it.series, ...f, date: d }));
+  } else {
+    const sid = days.length > 1 ? uid() : undefined;
+    days.forEach(d => plan.items.push({ id: uid(), taskId: null, series: sid, ...f, date: d }));
   }
-  rest.forEach(d => plan.items.push({ id: uid(), taskId: null, ...f, date: d }));
   touchPlan(plan); closeModal(); commit();
-  toast(days.length > 1 ? `Atividade planejada em ${days.length} dias: ${days.map(d => DOW_S[dowOf(d)]).join(', ')}.` : 'Atividade planejada.');
+  const lbl = days.map(d => DOW_S[dowOf(d)]).join(', ');
+  toast((days.length > 1 ? `Atividade salva em ${days.length} dias: ${lbl}.` : 'Atividade salva.') + (removed ? ` ${removed} ${removed === 1 ? 'dia removido' : 'dias removidos'}.` : ''));
 }
 
 /* Formulário de hábito */
@@ -2249,6 +2278,41 @@ const A = {
   /* Planejamento */
   'plan-week'(el){ ui.planWeek = addKey(ui.planWeek, 7 * +el.dataset.delta); render(); },
   'plan-week-set'(el){ ui.planWeek = el.dataset.key; render(); },
+  'plan-move'(){
+    const from = ui.planWeek, cur = weekKeyOf(todayKey());
+    const opts = [-2, -1, 0, 1, 2, 3].map(n => addKey(cur, 7 * n)).filter(k => k !== from);
+    modalCtx = { kind: 'planmove', from };
+    openModal({ title: 'Mover planejamento para outra semana',
+      body: `<p style="color:var(--ink-2)">Tudo o que está na semana de <strong>${weekRangeLabel(from)}</strong> vai para a semana escolhida, no mesmo dia da semana: atividades, prioridades, anotações, treinos ajustados e as tarefas que já foram para a Agenda.</p>
+        <div class="field" style="margin-top:14px"><label class="label" for="pm-to">Mover para</label>
+        <select id="pm-to" class="select">${opts.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${weekRel(k)} · ${weekRangeLabel(k)}</option>`).join('')}</select></div>
+        <p class="hint" style="margin-top:10px">Se a semana de destino já tiver itens, eles continuam lá e os novos são somados.</p>`,
+      footer: `<span class="spacer"></span><button class="btn" data-act="modal-close">Cancelar</button><button class="btn btn-primary" data-act="plan-move-ok">${icon('arrow-right', 'ic-sm')}Mover</button>` });
+  },
+  'plan-move-ok'(){
+    const from = modalCtx.from, to = $('#pm-to').value, off = Math.round((parseYmd(to) - parseYmd(from)) / 864e5);
+    const undo = snapshotUndo(), src = getPlan(from), dst = getPlan(to);
+    let nItems = 0, nTasks = 0;
+    for (const it of src.items) {
+      it.date = addKey(it.date, off); dst.items.push(it); nItems++;
+      const t = it.taskId && findTask(it.taskId);
+      if (t) { if (t.date) t.date = addKey(t.date, off); if (t.planKey === from) t.planKey = to; nTasks++; }
+    }
+    src.goals.forEach(g => { if (g.trim() && !dst.goals.some(x => x.trim() === g.trim())) { const i = dst.goals.findIndex(x => !x.trim()); if (i >= 0) dst.goals[i] = g; } });
+    if (src.review.trim()) dst.review = dst.review.trim() ? dst.review + '\n\n' + src.review : src.review;
+    if (src.appliedAt && !dst.appliedAt) dst.appliedAt = src.appliedAt;
+    // ajustes de treino feitos só para aquela semana
+    const fw = state.fit.weekPlans[from];
+    if (fw) {
+      const tw = state.fit.weekPlans[to] = state.fit.weekPlans[to] || { days: {}, times: {} };
+      for (const dk in fw.days) { const nk = addKey(dk, off); tw.days[nk] = fw.days[dk]; if (fw.times && fw.times[dk]) (tw.times = tw.times || {})[nk] = fw.times[dk]; }
+      delete state.fit.weekPlans[from];
+    }
+    state.tasks.forEach(t => { if (t.fitPlanKey === from) { t.fitPlanKey = to; if (t.date) t.date = addKey(t.date, off); nTasks++; } });
+    delete state.plans[from]; touchPlan(dst);
+    ui.planWeek = to; closeModal(); commit();
+    toast(`Movido para ${weekRangeLabel(to)}: ${nItems} ${nItems === 1 ? 'atividade' : 'atividades'}${nTasks ? ` e ${nTasks} ${nTasks === 1 ? 'tarefa da Agenda' : 'tarefas da Agenda'}` : ''}.`, { undo });
+  },
   'plan-step'(el){ ui.planStep = clamp(+el.dataset.step, 1, 4); ui.entering = true; render(); window.scrollTo({ top: 0 }); },
   resched(el){
     const t = findTask(el.dataset.id); if (!t) return;
@@ -2262,7 +2326,12 @@ const A = {
   },
   'pitem-new'(el){ openTaskModal(null, { date: el.dataset.date }, { mode: 'pitem', planKey: ui.planWeek }); },
   'pitem-edit'(el){ const i = getPlan(ui.planWeek).items.find(x => x.id === el.dataset.id); if (i) openTaskModal(i, {}, { mode: 'pitem', planKey: ui.planWeek }); },
-  'pitem-del'(el){ const p = getPlan(ui.planWeek); p.items = p.items.filter(i => i.id !== el.dataset.id); touchPlan(p); closeModal(); commit(); toast('Atividade removida do planejamento.'); },
+  'pitem-del'(el){
+    const p = getPlan(ui.planWeek), ids = modalCtx && modalCtx.scopeAll ? modalCtx.seriesIds : [el.dataset.id], undo = snapshotUndo();
+    p.items.filter(i => ids.includes(i.id)).forEach(i => { const t = i.taskId && findTask(i.taskId); if (t && t.status !== 'done') state.tasks = state.tasks.filter(y => y !== t); });
+    p.items = p.items.filter(i => !ids.includes(i.id)); touchPlan(p); closeModal(); commit();
+    toast(ids.length > 1 ? `Atividade removida dos ${ids.length} dias.` : 'Atividade removida do planejamento.', { undo });
+  },
   'plan-apply'(){
     const r = applyPlan(ui.planWeek), rf = applyFitWeek(ui.planWeek); r.created += rf.created; r.updated += rf.updated; r.removed += rf.removed; commit();
     const parts = []; if (r.created) parts.push(`${r.created} ${r.created > 1 ? 'criadas' : 'criada'}`); if (r.updated) parts.push(`${r.updated} ${r.updated > 1 ? 'atualizadas' : 'atualizada'}`); if (r.removed) parts.push(`${r.removed} ${r.removed > 1 ? 'removidas' : 'removida'}`);
@@ -2357,6 +2426,13 @@ const IN = {
 const CH = {
   'agenda-filter'(){ ui.filters.cat = $('#agenda-cat').value; ui.filters.pri = $('#agenda-pri').value; refreshAgendaBody(); },
   'hdate-jump'(el){ if (el.value.length === 10) A['hdate-jump'](el); },
+  'p-scope'(el){
+    modalCtx.scopeAll = el.checked;
+    modalCtx.pdays = el.checked ? [...new Set(getPlan(modalCtx.planKey).items.filter(x => modalCtx.seriesIds.includes(x.id)).map(x => x.date))] : [modalCtx.ownDate];
+    $$('#p-days .chip').forEach(c => c.setAttribute('aria-pressed', modalCtx.pdays.includes(c.dataset.k)));
+    const del = $('#modal-root [data-act="pitem-del"]'); if (del) del.innerHTML = `${icon('trash')}${el.checked ? 'Excluir de todos os dias' : 'Excluir só este dia'}`;
+    updateConflict();
+  },
   'f-cat'(el){ $('#newcat-row').hidden = el.value !== '__new'; if (el.value === '__new') $('#f-newcat').focus(); },
   'task-form'(){ updateConflict(); },
   'cat-color'(el){ const c = state.categories.find(x => x.id === el.dataset.id); if (c) { c.color = el.value; save(); } },
